@@ -2,27 +2,64 @@
 
 This repo uses [joshcai/leetcode-sync](https://github.com/joshcai/leetcode-sync) to push accepted LeetCode submissions here via GitHub Actions.
 
+## Cloudflare (Turnstile) and CI
+
+LeetCode’s email/password login includes a **Cloudflare “Verify you are human”** step. **Headless automation on GitHub-hosted runners cannot complete that challenge**, and the **Sign In** button stays disabled until you do.
+
+So:
+
+- **Scheduled / `workflow_dispatch` sync** (`.github/workflows/sync_leetcode.yml`) only reads **`LEETCODE_CSRF_TOKEN`** and **`LEETCODE_SESSION`** from repository secrets. It does **not** run Puppeteer on GitHub.
+- When those cookies expire, **refresh them on your machine** (see below) or paste new values from the browser into **Settings → Secrets**.
+
 ## Workflow
 
-The **Sync LeetCode** workflow (`.github/workflows/sync_leetcode.yml`) has two jobs:
+**Sync LeetCode** runs `joshcai/leetcode-sync@v1.7` with `github.token` (**contents: write**). Triggers: **schedule** (Saturdays 08:00 UTC) and **workflow_dispatch**.
 
-1. **`update_cookies`** — Logs into LeetCode with Puppeteer, updates the repository secrets `LEETCODE_CSRF_TOKEN` and `LEETCODE_SESSION`, and passes fresh cookie values to the next job via **job outputs** (with log masking).  
-   *Why outputs?* In one workflow run, GitHub does not re-read `${{ secrets.* }}` after those secrets are updated by the API, so the sync job cannot rely on the new values from the secrets context in the same run.
-
-2. **`sync`** — Runs `leetcode-sync` using the outputs from job 1 and pushes commits with `github.token` (needs **contents: write**).
-
-Triggers: **schedule** (Saturdays 08:00 UTC) and **workflow_dispatch**.
+Repo **Settings → Actions → General → Workflow permissions** should allow **Read and write** if commits fail with permission errors.
 
 ## Secrets (repository → Settings → Secrets and variables → Actions)
 
-| Secret | Used by |
+| Secret | Purpose |
 |--------|---------|
-| `LEETCODE_COOKIE_UPDATE_PAT` | Cookie job — PAT that can **update Actions secrets** for this repo (classic: `repo`; fine-grained: permissions that include repository secrets). `github.token` cannot do this. |
-| `LEETCODE_EMAIL` | Cookie job — LeetCode login email |
-| `LEETCODE_PASSWORD` | Cookie job — LeetCode password |
-| `LEETCODE_CSRF_TOKEN` | Updated each run for reference / tooling; the sync job uses **job outputs**, not this context, in the same run |
-| `LEETCODE_SESSION` | Same as above |
+| `LEETCODE_CSRF_TOKEN` | `csrftoken` cookie (used by sync) |
+| `LEETCODE_SESSION` | `LEETCODE_SESSION` cookie (used by sync) |
+| `LEETCODE_COOKIE_UPDATE_PAT` | Only for **local** `update-leetcode-cookies.js` — classic PAT with `repo` (or fine-grained token that can update Actions secrets) |
+| `LEETCODE_EMAIL` | LeetCode login email (local script) |
+| `LEETCODE_PASSWORD` | LeetCode password (local script) |
 
-## Local script
+## Refresh cookies locally (Cloudflare manual step)
 
-Cookie refresh logic lives in `.github/scripts/update-leetcode-cookies.js` (libsodium encryption for the GitHub Secrets API). Install with `npm ci` in that directory if you run it locally (set `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `LEETCODE_EMAIL`, `LEETCODE_PASSWORD`).
+From `.github/scripts`:
+
+```powershell
+npm ci
+$env:GITHUB_TOKEN = "<PAT with repo + secrets write>"
+$env:GITHUB_REPOSITORY = "your-username/your-repo"
+$env:LEETCODE_HEADLESS = "0"
+$env:LC_WAIT_FOR_MANUAL_LOGIN = "1"
+$env:LEETCODE_EMAIL = "your-email"
+$env:LEETCODE_PASSWORD = "your-password"
+node update-leetcode-cookies.js
+```
+
+A Chrome window opens with email/password filled. **Complete the Cloudflare checkbox**, click **Sign In**, then wait; the script polls for `LEETCODE_SESSION` (default **10 minutes**, override with `LC_MANUAL_LOGIN_TIMEOUT_MS`).
+
+You can put `LEETCODE_EMAIL`, `LEETCODE_PASSWORD`, and `GITHUB_TOKEN` in repo root `.env` instead of exporting them (still set `GITHUB_REPOSITORY` for local runs).
+
+### Local login test only (no GitHub API)
+
+```powershell
+cd .github/scripts
+npm install
+$env:LEETCODE_HEADLESS = "0"
+$env:LC_WAIT_FOR_MANUAL_LOGIN = "1"
+npm run test:login
+```
+
+Use **`$env:…` in PowerShell**, not `set` (which does not propagate to `npm`).
+
+Optional: `LC_LOGIN_DEBUG=1` writes `leetcode-login-debug.png` on failure; `LC_LOGIN_KEYBOARD=1` types keys instead of synthetic input.
+
+### Paste from the browser
+
+Log in manually at [leetcode.com](https://leetcode.com), open DevTools → **Application** → **Cookies**, copy `csrftoken` and `LEETCODE_SESSION`, then create/update the two secrets on GitHub.

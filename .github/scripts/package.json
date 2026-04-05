@@ -1,8 +1,15 @@
 {
   "name": "update-leetcode-cookies",
   "private": true,
+  "scripts": {
+    "test:login": "node test-login.js",
+    "refresh:secrets": "node update-leetcode-cookies.js"
+  },
   "dependencies": {
     "libsodium-wrappers": "^0.7.15",
     "puppeteer": "^24.15.0"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.7"
   }
 }

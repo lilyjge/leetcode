@@ -1,8 +1,8 @@
 "use strict";
 
 const fs = require("fs");
-const puppeteer = require("puppeteer");
 const sodium = require("libsodium-wrappers");
+const { getLeetCodeSessionCookies } = require("./leetcode-login.js");
 
 const email = process.env.LEETCODE_EMAIL;
 const password = process.env.LEETCODE_PASSWORD;
@@ -87,60 +87,44 @@ function writeStepOutputs(csrf, session) {
   esc("session", session);
 }
 
+function parseHeadless() {
+  const v = process.env.LEETCODE_HEADLESS;
+  if (v === "0" || v === "false") return false;
+  if (v === "shell") return "shell";
+  return true;
+}
+
 (async () => {
   await sodium.ready;
   const { key_id: keyId, key: publicKeyB64 } = await getRepoPublicKey();
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+  const debug =
+    process.env.LC_LOGIN_DEBUG === "1" || process.env.RUNNER_DEBUG === "1";
+
+  const { csrf, session } = await getLeetCodeSessionCookies({
+    email,
+    password,
+    headless: parseHeadless(),
+    debug,
+    manualCloudflare: process.env.LC_WAIT_FOR_MANUAL_LOGIN === "1",
   });
 
-  try {
-    const page = await browser.newPage();
-    await page.goto("https://leetcode.com/accounts/login/", {
-      waitUntil: "networkidle2",
-      timeout: 60000,
-    });
+  await putRepoSecret(
+    "LEETCODE_CSRF_TOKEN",
+    csrf,
+    keyId,
+    encryptSecret(csrf, publicKeyB64),
+  );
+  await putRepoSecret(
+    "LEETCODE_SESSION",
+    session,
+    keyId,
+    encryptSecret(session, publicKeyB64),
+  );
 
-    await page.waitForSelector("#id_login", { timeout: 30000 });
-    await page.type("#id_login", email);
-    await page.type("#id_password", password);
+  writeStepOutputs(csrf, session);
 
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 60000 }),
-      page.click("button[type='submit']"),
-    ]);
-
-    const cookies = await page.cookies();
-    const csrf = cookies.find((c) => c.name === "csrftoken")?.value;
-    const session = cookies.find((c) => c.name === "LEETCODE_SESSION")?.value;
-
-    if (!csrf || !session) {
-      throw new Error(
-        "Login did not produce csrftoken / LEETCODE_SESSION cookies (CAPTCHA, 2FA, or UI change).",
-      );
-    }
-
-    await putRepoSecret(
-      "LEETCODE_CSRF_TOKEN",
-      csrf,
-      keyId,
-      encryptSecret(csrf, publicKeyB64),
-    );
-    await putRepoSecret(
-      "LEETCODE_SESSION",
-      session,
-      keyId,
-      encryptSecret(session, publicKeyB64),
-    );
-
-    writeStepOutputs(csrf, session);
-
-    console.log("Updated repository secrets LEETCODE_CSRF_TOKEN and LEETCODE_SESSION.");
-  } finally {
-    await browser.close();
-  }
+  console.log("Updated repository secrets LEETCODE_CSRF_TOKEN and LEETCODE_SESSION.");
 })().catch((err) => {
   console.error(err);
   process.exit(1);
