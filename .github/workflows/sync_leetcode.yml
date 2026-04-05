@@ -1,4 +1,7 @@
-name: Sync Leetcode
+# Job 1 logs into LeetCode, updates repo secrets (for later runs), and exposes cookies via job outputs.
+# Job 2 must use those outputs: GitHub does not re-read ${{ secrets.* }} after job 1 updates them in the same run.
+
+name: Sync LeetCode
 
 on:
   workflow_dispatch:
@@ -6,15 +9,40 @@ on:
     - cron: "0 8 * * 6"
 
 jobs:
-  build:
+  update_cookies:
     runs-on: ubuntu-latest
-
+    outputs:
+      csrf: ${{ steps.rotate.outputs.csrf }}
+      session: ${{ steps.rotate.outputs.session }}
     steps:
-      - name: Sync
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: .github/scripts/package-lock.json
+
+      - id: rotate
+        name: Log in to LeetCode and rotate secrets
+        working-directory: .github/scripts
+        run: npm ci && node update-leetcode-cookies.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.LEETCODE_COOKIE_UPDATE_PAT }}
+          LEETCODE_EMAIL: ${{ secrets.LEETCODE_EMAIL }}
+          LEETCODE_PASSWORD: ${{ secrets.LEETCODE_PASSWORD }}
+
+  sync:
+    needs: update_cookies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Sync submissions
         uses: joshcai/leetcode-sync@v1.7
         with:
           github-token: ${{ github.token }}
-          leetcode-csrf-token: ${{ secrets.LEETCODE_CSRF_TOKEN }}
-          leetcode-session: ${{ secrets.LEETCODE_SESSION }}
+          leetcode-csrf-token: ${{ needs.update_cookies.outputs.csrf }}
+          leetcode-session: ${{ needs.update_cookies.outputs.session }}
           verbose: true
           commit-header: "[LeetCode Sync]"
