@@ -29,6 +29,24 @@ Repo **Settings → Actions → General → Workflow permissions** should allow 
 
 ## Refresh cookies locally (Cloudflare manual step)
 
+### One command (recommended)
+
+From the **repo root** in PowerShell:
+
+```powershell
+.\refresh-leetcode-cookies.ps1
+```
+
+If execution policy blocks scripts: `powershell -ExecutionPolicy Bypass -File .\refresh-leetcode-cookies.ps1`
+
+Put in repo root **`.env`** (do not commit it): `LEETCODE_EMAIL`, `LEETCODE_PASSWORD`, and either `GITHUB_TOKEN` or `LEETCODE_COOKIE_UPDATE_PAT` (PAT that can update Actions secrets). `GITHUB_REPOSITORY` is optional if `git remote origin` is a `github.com` URL.
+
+A Chrome window opens with email/password filled. **Complete the Cloudflare checkbox**, click **Sign In**, then wait; the script polls for `LEETCODE_SESSION` (default **10 minutes**; set `LC_MANUAL_LOGIN_TIMEOUT_MS` in `.env` if needed).
+
+- **Automated attempt** (usually blocked by Cloudflare): `.\refresh-leetcode-cookies.ps1 -SkipManualWait`
+
+### Manual steps (same as the script)
+
 From `.github/scripts`:
 
 ```powershell
@@ -41,10 +59,6 @@ $env:LEETCODE_EMAIL = "your-email"
 $env:LEETCODE_PASSWORD = "your-password"
 node update-leetcode-cookies.js
 ```
-
-A Chrome window opens with email/password filled. **Complete the Cloudflare checkbox**, click **Sign In**, then wait; the script polls for `LEETCODE_SESSION` (default **10 minutes**, override with `LC_MANUAL_LOGIN_TIMEOUT_MS`).
-
-You can put `LEETCODE_EMAIL`, `LEETCODE_PASSWORD`, and `GITHUB_TOKEN` in repo root `.env` instead of exporting them (still set `GITHUB_REPOSITORY` for local runs).
 
 ### Local login test only (no GitHub API)
 
